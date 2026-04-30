@@ -36,17 +36,26 @@ export default function TerminalPage() {
         const onShortcut = (ev) => {
             if (!ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
             if (ev.repeat) return;
-            const key = ev.key.toLowerCase();
-            if (key === 'd') {
+            const target = ev.target;
+            const tagName = target?.tagName?.toLowerCase();
+            if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+                return;
+            }
+
+            const key = (ev.key || '').toLowerCase();
+            const code = ev.code || '';
+            if (key === 'd' || code === 'KeyD') {
                 ev.preventDefault();
+                ev.stopPropagation();
                 splitTerminal('vertical');
-            } else if (key === 'e') {
+            } else if (key === 'e' || code === 'KeyE') {
                 ev.preventDefault();
+                ev.stopPropagation();
                 splitTerminal('horizontal');
             }
         };
-        window.addEventListener('keydown', onShortcut);
-        return () => window.removeEventListener('keydown', onShortcut);
+        window.addEventListener('keydown', onShortcut, true);
+        return () => window.removeEventListener('keydown', onShortcut, true);
     }, [splitTerminal]);
 
     useEffect(() => {
