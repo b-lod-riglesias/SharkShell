@@ -396,16 +396,21 @@ export function TerminalProvider({ children }) {
                 if (event.repeat) return true;
 
                 const isAltGraph = typeof event.getModifierState === 'function' ? event.getModifierState('AltGraph') : false;
-                if (!event.altKey || event.metaKey) return true;
-                if (event.ctrlKey && !isAltGraph) return true;
+                const isAltShortcut = event.altKey && !event.metaKey && (!event.ctrlKey || isAltGraph);
+                const isFallbackShortcut = event.ctrlKey && event.shiftKey && !event.metaKey;
+                if (!isAltShortcut && !isFallbackShortcut) return true;
 
                 const key = (event.key || '').toLowerCase();
                 const code = event.code || '';
-                if (key === 'd' || code === 'KeyD') {
+                const keyCode = event.keyCode;
+                const isSplitVertical = key === 'd' || code === 'KeyD' || keyCode === 68;
+                const isSplitHorizontal = key === 'e' || code === 'KeyE' || keyCode === 69;
+
+                if (isSplitVertical) {
                     splitTerminal('vertical');
                     return false;
                 }
-                if (key === 'e' || code === 'KeyE') {
+                if (isSplitHorizontal) {
                     splitTerminal('horizontal');
                     return false;
                 }

@@ -35,24 +35,30 @@ export default function TerminalPage() {
     useEffect(() => {
         const onShortcut = (ev) => {
             const isAltGraph = typeof ev.getModifierState === 'function' ? ev.getModifierState('AltGraph') : false;
-            if (!ev.altKey || ev.metaKey) return;
-            if (ev.ctrlKey && !isAltGraph) return;
+            const isAltShortcut = ev.altKey && !ev.metaKey && (!ev.ctrlKey || isAltGraph);
+            const isFallbackShortcut = ev.ctrlKey && ev.shiftKey && !ev.metaKey;
+            if (!isAltShortcut && !isFallbackShortcut) return;
             if (ev.repeat) return;
             const target = ev.target;
             const tagName = target?.tagName?.toLowerCase();
-            if (tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) {
+            const isXtermInput = tagName === 'textarea' && target?.classList?.contains('xterm-helper-textarea');
+            if ((tagName === 'input' || tagName === 'textarea' || target?.isContentEditable) && !isXtermInput) {
                 return;
             }
 
             const key = (ev.key || '').toLowerCase();
             const code = ev.code || '';
-            if (key === 'd' || code === 'KeyD') {
+            const keyCode = ev.keyCode;
+            const isSplitVertical = key === 'd' || code === 'KeyD' || keyCode === 68;
+            const isSplitHorizontal = key === 'e' || code === 'KeyE' || keyCode === 69;
+
+            if (isSplitVertical) {
                 ev.preventDefault();
                 ev.stopImmediatePropagation();
                 splitTerminal('vertical');
                 return;
             }
-            if (key === 'e' || code === 'KeyE') {
+            if (isSplitHorizontal) {
                 ev.preventDefault();
                 ev.stopImmediatePropagation();
                 splitTerminal('horizontal');
@@ -172,7 +178,7 @@ export default function TerminalPage() {
                     </button>
                     <button
                         className="terminal-new-tab"
-                        title="Split vertically (Alt + D)"
+                        title="Split vertically (Alt + D / Ctrl + Shift + D)"
                         onClick={() => splitTerminal('vertical')}
                     >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -182,7 +188,7 @@ export default function TerminalPage() {
                     </button>
                     <button
                         className="terminal-new-tab"
-                        title="Split horizontally (Alt + E)"
+                        title="Split horizontally (Alt + E / Ctrl + Shift + E)"
                         onClick={() => splitTerminal('horizontal')}
                     >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
