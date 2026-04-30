@@ -1,0 +1,21 @@
+{
+    # Requiere Caddy con acceso a DNS público del dominio
+    email {$LETSENCRYPT_EMAIL}
+    admin off
+}
+
+{$SHARKSHELL_DOMAIN} {
+    encode gzip zstd
+
+    reverse_proxy 127.0.0.1:{$SHARKSHELL_PORT} {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

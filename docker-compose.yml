@@ -1,0 +1,60 @@
+services:
+  sharkshell:
+    image: sharkshell-custom:latest
+    build:
+      context: ./custom
+      dockerfile: Dockerfile
+    container_name: sharkshell
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      COMPOSE_PORT: ${COMPOSE_PORT:-8080}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "${SHARKSHELL_BIND_ADDRESS:-127.0.0.1}:${SHARKSHELL_PORT:-8080}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/secrets:/app/secrets
+    networks:
+      - sharkshell_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const http=require('http');const req=http.get('http://127.0.0.1/api/auth/setup-status', (res) => {process.exit(res.statusCode === 200 ? 0 : 1)}); req.on('error', () => process.exit(1));\""]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: sharkshell-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - sharkshell_net
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U ${DB_USER} -d ${DB_NAME}"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+networks:
+  sharkshell_net:
+    driver: bridge
