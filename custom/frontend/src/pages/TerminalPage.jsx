@@ -34,7 +34,9 @@ export default function TerminalPage() {
 
     useEffect(() => {
         const onShortcut = (ev) => {
-            if (!ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+            const isAltGraph = typeof ev.getModifierState === 'function' ? ev.getModifierState('AltGraph') : false;
+            if (!ev.altKey || ev.metaKey) return;
+            if (ev.ctrlKey && !isAltGraph) return;
             if (ev.repeat) return;
             const target = ev.target;
             const tagName = target?.tagName?.toLowerCase();
@@ -46,16 +48,18 @@ export default function TerminalPage() {
             const code = ev.code || '';
             if (key === 'd' || code === 'KeyD') {
                 ev.preventDefault();
-                ev.stopPropagation();
+                ev.stopImmediatePropagation();
                 splitTerminal('vertical');
-            } else if (key === 'e' || code === 'KeyE') {
+                return;
+            }
+            if (key === 'e' || code === 'KeyE') {
                 ev.preventDefault();
-                ev.stopPropagation();
+                ev.stopImmediatePropagation();
                 splitTerminal('horizontal');
             }
         };
-        window.addEventListener('keydown', onShortcut, true);
-        return () => window.removeEventListener('keydown', onShortcut, true);
+        document.addEventListener('keydown', onShortcut, true);
+        return () => document.removeEventListener('keydown', onShortcut, true);
     }, [splitTerminal]);
 
     useEffect(() => {
