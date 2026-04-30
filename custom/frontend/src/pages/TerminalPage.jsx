@@ -6,10 +6,10 @@ import { apiUrl } from '../api';
 export default function TerminalPage() {
     const { token } = useAuth();
     const {
-        workspaces, activeWorkspaceId, activeSessionId,
-        activeWorkspace, setActiveSessionId,
+        workspaces, activeWorkspaceId, activeSessionId, activePaneId,
+        activeWorkspace, splitTerminal, setActivePane,
         createSession, closeSession, connectGroup, getSessionRefs,
-        reconnectSession,
+        reconnectSession, switchSession,
         passphrasePrompt, submitPassphrase, cancelPassphrase,
     } = useTerminal();
     const [passphraseInput, setPassphraseInput] = useState('');
@@ -21,27 +21,73 @@ export default function TerminalPage() {
     const [showGroupConnect, setShowGroupConnect] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');
 
+    const sessions = activeWorkspace?.sessions || [];
+    const panes = activeWorkspace?.panes || [];
+    const splitDirection = activeWorkspace?.splitDirection || 'vertical';
+
     useEffect(() => {
-        if (token) { fetchHosts(); fetchGroups(); }
+        if (token) {
+            fetchHosts();
+            fetchGroups();
+        }
     }, [token]);
+
+    useEffect(() => {
+        const onShortcut = (ev) => {
+            if (!ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+            if (ev.repeat) return;
+            const key = ev.key.toLowerCase();
+            if (key === 'd') {
+                ev.preventDefault();
+                splitTerminal('vertical');
+            } else if (key === 'e') {
+                ev.preventDefault();
+                splitTerminal('horizontal');
+            }
+        };
+        window.addEventListener('keydown', onShortcut);
+        return () => window.removeEventListener('keydown', onShortcut);
+    }, [splitTerminal]);
+
+    useEffect(() => {
+        const activePane = panes.find((pane) => pane.id === activePaneId);
+        if (!activePane?.sessionId) return;
+        const sessionId = activePane.sessionId;
+        const timer = setTimeout(() => {
+            const refs = getSessionRefs(sessionId);
+            if (refs?.fitAddon) {
+                try { refs.fitAddon.fit(); } catch { }
+            }
+            if (refs?.term) {
+                refs.term.focus();
+            }
+        }, 40);
+        return () => clearTimeout(timer);
+    }, [activeWorkspaceId, activePaneId, getSessionRefs, panes]);
 
     async function fetchHosts() {
         try {
             const res = await fetch(apiUrl('/api/hosts'), { headers: { Authorization: `Bearer ${token}` } });
-            if (res.ok) { const data = await res.json(); setHosts(data.hosts || []); }
+            if (res.ok) {
+                const data = await res.json();
+                setHosts(data.hosts || []);
+            }
         } catch { }
     }
 
     async function fetchGroups() {
         try {
             const res = await fetch(apiUrl('/api/groups?type=host'), { headers: { Authorization: `Bearer ${token}` } });
-            if (res.ok) { const data = await res.json(); setGroups(data.groups || []); }
+            if (res.ok) {
+                const data = await res.json();
+                setGroups(data.groups || []);
+            }
         } catch { }
     }
 
     function handleAddHost() {
         if (!addHostId) return;
-        const host = hosts.find(h => h.id === addHostId);
+        const host = hosts.find((h) => h.id === addHostId);
         if (host) createSession(activeWorkspaceId, host);
         setAddHostId('');
         setShowAddHost(false);
@@ -49,14 +95,20 @@ export default function TerminalPage() {
 
     function handleGroupConnect() {
         if (!selectedGroupId) return;
-        const groupHosts = hosts.filter(h => h.group_id === selectedGroupId);
+        const groupHosts = hosts.filter((h) => h.group_id === selectedGroupId);
         if (groupHosts.length > 0) connectGroup(activeWorkspaceId, groupHosts);
         setSelectedGroupId('');
         setShowGroupConnect(false);
     }
 
-    function switchTab(sessionId) {
-        setActiveSessionId(sessionId);
+    function handleTabClick(sessionId) {
+        const session = sessions.find((s) => s.id === sessionId);
+        if (!session) return;
+        if (session.status === 'saved' || session.status === 'disconnected') {
+            reconnectSession(sessionId);
+            return;
+        }
+        switchSession(activeWorkspaceId, sessionId);
         setTimeout(() => {
             const refs = getSessionRefs(sessionId);
             if (refs?.fitAddon) try { refs.fitAddon.fit(); } catch { }
@@ -64,11 +116,22 @@ export default function TerminalPage() {
         }, 30);
     }
 
-    const sessions = activeWorkspace?.sessions || [];
-    const statusColors = { connecting: 'var(--warning)', connected: 'var(--success)', disconnected: 'var(--danger)', saved: 'var(--text-tertiary)' };
-
-    // Collect ALL sessions from ALL workspaces for persistent rendering
-    const allSessions = workspaces.flatMap(ws => ws.sessions.map(s => ({ ...s, workspaceId: ws.id })));
+    function renderPaneInstance(sessionId) {
+        const session = sessions.find((s) => s.id === sessionId);
+        if (!session) {
+            return (
+                <div className="terminal-pane-empty">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.35, marginBottom: 14 }}>
+                        <polyline points="4 17 10 11 4 5" />
+                        <line x1="12" y1="19" x2="20" y2="19" />
+                    </svg>
+                    <h3>No Session</h3>
+                    <p>Select a host or reconnect from a tab.</p>
+                </div>
+            );
+        }
+        return <div id={`term-${session.id}`} className="terminal-instance" />;
+    }
 
     return (
         <div className="terminal-page">
@@ -77,16 +140,16 @@ export default function TerminalPage() {
             {/* Tab Bar */}
             <div className="terminal-tab-bar glass-card">
                 <div className="terminal-tabs-scroll">
-                    {sessions.map(s => (
+                    {sessions.map((s) => (
                         <button
                             key={s.id}
                             className={`terminal-tab ${activeSessionId === s.id ? 'terminal-tab-active' : ''} ${s.status === 'saved' ? 'terminal-tab-saved' : ''}`}
-                            onClick={() => s.status === 'saved' || s.status === 'disconnected' ? reconnectSession(s.id) : switchTab(s.id)}
+                            onClick={() => handleTabClick(s.id)}
                         >
-                            <span className="terminal-tab-dot" style={{ background: statusColors[s.status] || 'var(--text-tertiary)' }} />
+                            <span className="terminal-tab-dot" style={{ background: s.status === 'connected' ? 'var(--success)' : s.status === 'connecting' ? 'var(--warning)' : s.status === 'disconnected' ? 'var(--danger)' : 'var(--text-tertiary)' }} />
                             <span className="terminal-tab-name">{s.hostName}</span>
                             <span className="terminal-tab-addr">{s.status === 'saved' ? '💾 saved' : s.status === 'disconnected' ? '↻ reconnect' : s.hostAddr}</span>
-                            <button className="terminal-tab-close" onClick={e => { e.stopPropagation(); closeSession(s.id); }} title="Close">×</button>
+                            <button className="terminal-tab-close" onClick={(e) => { e.stopPropagation(); closeSession(s.id); }} title="Close">×</button>
                         </button>
                     ))}
                 </div>
@@ -94,9 +157,28 @@ export default function TerminalPage() {
                     <button className="terminal-new-tab" onClick={() => setShowAddHost(!showAddHost)} title="Add host">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                     </button>
+                    <button
+                        className="terminal-new-tab"
+                        title="Split vertically (Alt + D)"
+                        onClick={() => splitTerminal('vertical')}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 12h18" />
+                            <path d="M12 3v18" />
+                        </svg>
+                    </button>
+                    <button
+                        className="terminal-new-tab"
+                        title="Split horizontally (Alt + E)"
+                        onClick={() => splitTerminal('horizontal')}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 12h18" />
+                            <path d="M3 5h18M3 19h18" />
+                        </svg>
+                    </button>
                     {groups.length > 0 && (
-                        <button className="terminal-new-tab" onClick={() => setShowGroupConnect(!showGroupConnect)} title="Connect group"
-                            style={{ fontSize: 13 }}>
+                        <button className="terminal-new-tab" onClick={() => setShowGroupConnect(!showGroupConnect)} title="Connect group" style={{ fontSize: 13 }}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                         </button>
                     )}
@@ -106,9 +188,9 @@ export default function TerminalPage() {
             {/* Add Host Panel */}
             {showAddHost && (
                 <div className="new-tab-panel glass-card">
-                    <select className="input-field host-select" value={addHostId} onChange={e => setAddHostId(e.target.value)}>
+                    <select className="input-field host-select" value={addHostId} onChange={(e) => setAddHostId(e.target.value)}>
                         <option value="">Select a host...</option>
-                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name} ({h.username}@{h.hostname}:{h.port})</option>)}
+                        {hosts.map((h) => <option key={h.id} value={h.id}>{h.name} ({h.username}@{h.hostname}:{h.port})</option>)}
                     </select>
                     <button className="btn btn-primary btn-sm" onClick={handleAddHost} disabled={!addHostId}>Connect</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowAddHost(false)}>Cancel</button>
@@ -118,17 +200,17 @@ export default function TerminalPage() {
             {/* Group Connect Panel */}
             {showGroupConnect && (
                 <div className="new-tab-panel glass-card">
-                    <select className="input-field host-select" value={selectedGroupId} onChange={e => setSelectedGroupId(e.target.value)}>
+                    <select className="input-field host-select" value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
                         <option value="">Select a host group...</option>
-                        {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.item_count} hosts)</option>)}
+                        {groups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.item_count} hosts)</option>)}
                     </select>
                     <button className="btn btn-primary btn-sm" onClick={handleGroupConnect} disabled={!selectedGroupId}>Connect All</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowGroupConnect(false)}>Cancel</button>
                 </div>
             )}
 
-            {/* Terminal Containers — render ALL sessions across ALL workspaces to prevent DOM unmount */}
-            <div className="terminal-container">
+            {/* Terminal Containers */}
+            <div className={`terminal-container terminal-split-layout ${sessions.length === 0 ? 'terminal-empty-mode' : ''}`} data-direction={splitDirection}>
                 {sessions.length === 0 ? (
                     <div className="terminal-empty">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 16 }}>
@@ -149,19 +231,22 @@ export default function TerminalPage() {
                             )}
                         </div>
                     </div>
-                ) : null}
-
-                {/* Render ALL sessions from ALL workspaces — visibility controlled by CSS */}
-                {allSessions.map(s => (
-                    <div
-                        key={s.id}
-                        id={`term-${s.id}`}
-                        className="terminal-instance"
-                        style={{
-                            display: (s.workspaceId === activeWorkspaceId && activeSessionId === s.id) ? 'block' : 'none'
-                        }}
-                    />
-                ))}
+                ) : (
+                    panes.map((pane, index) => {
+                        const isActive = activePaneId === pane.id;
+                        return (
+                            <div
+                                key={pane.id}
+                                className={`terminal-pane ${isActive ? 'terminal-pane-active' : ''}`}
+                                onClick={() => setActivePane(pane.id)}
+                                role="button"
+                            >
+                                {renderPaneInstance(pane.sessionId)}
+                                {panes.length > 1 && <div className="terminal-pane-idx">{index + 1}</div>}
+                            </div>
+                        );
+                    })
+                )}
             </div>
 
             {/* Passphrase Prompt Modal */}
@@ -174,7 +259,7 @@ export default function TerminalPage() {
                         </p>
                         <form onSubmit={(e) => { e.preventDefault(); submitPassphrase(passphraseInput); setPassphraseInput(''); }}>
                             <div className="input-group" style={{ marginBottom: 16 }}>
-                                <input type="password" className="input-field" placeholder="Enter key passphrase" value={passphraseInput} onChange={e => setPassphraseInput(e.target.value)} autoFocus />
+                                <input type="password" className="input-field" placeholder="Enter key passphrase" value={passphraseInput} onChange={(e) => setPassphraseInput(e.target.value)} autoFocus />
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-ghost" onClick={() => { cancelPassphrase(); setPassphraseInput(''); }}>Cancel</button>
