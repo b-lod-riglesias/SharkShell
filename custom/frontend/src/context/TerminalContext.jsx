@@ -391,6 +391,28 @@ export function TerminalProvider({ children }) {
             term.loadAddon(fitAddon);
             term.loadAddon(new WebLinksAddon());
 
+            term.attachCustomKeyEventHandler((event) => {
+                if (!event || event.type !== 'keydown') return true;
+                if (event.repeat) return true;
+
+                const isAltGraph = typeof event.getModifierState === 'function' ? event.getModifierState('AltGraph') : false;
+                if (!event.altKey || event.metaKey) return true;
+                if (event.ctrlKey && !isAltGraph) return true;
+
+                const key = (event.key || '').toLowerCase();
+                const code = event.code || '';
+                if (key === 'd' || code === 'KeyD') {
+                    splitTerminal('vertical');
+                    return false;
+                }
+                if (key === 'e' || code === 'KeyE') {
+                    splitTerminal('horizontal');
+                    return false;
+                }
+
+                return true;
+            });
+
             const paneSessionId = `term-${sessionId}`;
             const container = document.getElementById(paneSessionId);
             if (container) {
